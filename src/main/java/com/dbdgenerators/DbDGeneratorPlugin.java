@@ -62,10 +62,10 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             
             meta.setDisplayName("§e§lГенератор из DbD");
             meta.setLore(Arrays.asList(
-                    "§7Установите этот блок, чтобы собрать",
-                    "§7высокий интерактивный генератор.",
+                    "§7Установите этот блок, чтобы создать",
+                    "§7высокий работающий генератор.",
                     "",
-                    "§6Подаёт редстоун-сигнал после починки!"
+                    "§cShift + ЛКМ — демонтировать объект"
             ));
             item.setItemMeta(meta);
         }
@@ -92,43 +92,43 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
             Location spawnLoc = event.getBlockPlaced().getLocation();
             spawnGenerator(spawnLoc);
-            event.getPlayer().sendMessage("§aГенератор установлен! Нажмите ПКМ для ремонта.");
+            event.getPlayer().sendMessage("§aГенератор установлен! ПКМ — ремонт, Shift+ЛКМ — убрать.");
         }
     }
 
     public void spawnGenerator(Location loc) {
         Location centerLoc = loc.getBlock().getLocation().add(0.5, 0.0, 0.5);
 
-        // Хитбокс увеличен до 3 блоков в высоту для надежности кликов
         Interaction interaction = centerLoc.getWorld().spawn(centerLoc, Interaction.class, ent -> {
             ent.setInteractionWidth(1.6f);
-            ent.setInteractionHeight(3.0f);
+            ent.setInteractionHeight(3.2f); 
         });
 
         List<ItemDisplay> parts = new ArrayList<>();
         List<ItemDisplay> leftPistons = new ArrayList<>();
         List<ItemDisplay> rightPistons = new ArrayList<>();
 
-        // ВЫСОКИЙ КОРПУС (Из прошлой версии)
-        parts.add(spawnPart(centerLoc, Material.BLAST_FURNACE, 0, 0, 0, 1.2f, 1.35f, 1.2f, 0, 0));
+        // ИСПРАВЛЕНО: Корпус ровно 1 блок в высоту (sy=1.0) и поднят на половину высоты (dy=0.5), чтобы стоять на земле
+        parts.add(spawnPart(centerLoc, Material.BLAST_FURNACE, 0, 0.5, 0, 1.2f, 1.0f, 1.2f, 0, 0));
         
-        // Все элементы подняты под новый рост корпуса + маленький наблюдатель
-        parts.add(spawnPart(centerLoc, Material.OBSERVER, 0, 0.65, 0.42, 0.5f, 0.4f, 0.25f, 0, 0));
-        parts.add(spawnPart(centerLoc, Material.HOPPER, 0, 1.25, -0.3, 0.7f, 0.6f, 0.7f, 0, 0));
-        parts.add(spawnPart(centerLoc, Material.ANVIL, 0, 1.3, 0.3, 0.5f, 0.4f, 0.5f, 0, 0));
-        parts.add(spawnPart(centerLoc, Material.LIGHTNING_ROD, 0, 1.85, 0.3, 0.5f, 1.8f, 0.5f, 0, 0));
+        // Все остальные детали приподняты, чтобы лежать ровно на новом корпусе
+        parts.add(spawnPart(centerLoc, Material.OBSERVER, 0, 1.0, 0.42, 0.5f, 0.4f, 0.25f, 0, 0));
+        parts.add(spawnPart(centerLoc, Material.HOPPER, 0, 1.3, -0.3, 0.7f, 0.6f, 0.7f, 0, 0));
+        parts.add(spawnPart(centerLoc, Material.ANVIL, 0, 1.35, 0.3, 0.5f, 0.4f, 0.5f, 0, 0));
+        parts.add(spawnPart(centerLoc, Material.LIGHTNING_ROD, 0, 2.0, 0.3, 0.5f, 1.8f, 0.5f, 0, 0));
 
-        ItemDisplay lamp = spawnPart(centerLoc, Material.REDSTONE_LAMP, 0, 2.75, 0.3, 0.45f, 0.45f, 0.45f, 0, 0);
+        // Лампа теперь на высоте 2.9
+        ItemDisplay lamp = spawnPart(centerLoc, Material.REDSTONE_LAMP, 0, 2.9, 0.3, 0.45f, 0.45f, 0.45f, 0, 0);
         parts.add(lamp);
 
-        // ПОРШНИ ПО ВСЕМУ КОРПУСУ (5 пар верхушек поршней утоплены под углом)
+        // Поршни (dy=1.1, чтобы они красиво торчали из верхней части корпуса)
         double[] zOffsets = {-0.4, -0.2, 0.0, 0.2, 0.4};
         for (double zOffset : zOffsets) {
-            ItemDisplay lp = spawnPart(centerLoc, Material.PISTON_HEAD, -0.38, 0.8, zOffset, 0.25f, 0.25f, 0.25f, -90, -30);
+            ItemDisplay lp = spawnPart(centerLoc, Material.PISTON_HEAD, -0.38, 1.1, zOffset, 0.25f, 0.25f, 0.25f, -90, -30);
             leftPistons.add(lp);
             parts.add(lp);
 
-            ItemDisplay rp = spawnPart(centerLoc, Material.PISTON_HEAD, 0.38, 0.8, zOffset, 0.25f, 0.25f, 0.25f, 90, -30);
+            ItemDisplay rp = spawnPart(centerLoc, Material.PISTON_HEAD, 0.38, 1.1, zOffset, 0.25f, 0.25f, 0.25f, 90, -30);
             rightPistons.add(rp);
             parts.add(rp);
         }
@@ -148,7 +148,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         });
     }
 
-    // Единый метод безопасного старта сессии починки
     private void tryStartRepair(Player player, GeneratorInstance gen) {
         if (gen == null || gen.isCompleted()) return;
         if (activeSessions.containsKey(player.getUniqueId())) return;
@@ -158,7 +157,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         session.runTaskTimer(this, 0L, 2L);
     }
 
-    // КЛИК 1: Прямое попадание по хитбоксу Interaction
     @EventHandler
     public void onGeneratorInteractEntity(PlayerInteractEntityEvent event) {
         if (event.getHand() == EquipmentSlot.OFF_HAND) return;
@@ -168,17 +166,15 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         tryStartRepair(event.getPlayer(), gen);
     }
 
-    // КЛИК 2 (РЕЗЕРВНЫЙ): Игрок нажал ПКМ рядом с генератором (на воздух/блок), если игра потеряла хитбокс
     @EventHandler
     public void onGeneratorInteractBlock(PlayerInteractEvent event) {
         if (event.getHand() == EquipmentSlot.OFF_HAND) return;
         if (event.getAction() != Action.RIGHT_CLICK_BLOCK && event.getAction() != Action.RIGHT_CLICK_AIR) return;
 
         Player player = event.getPlayer();
-        
-        // Сканируем генераторы в радиусе 3 блоков от игрока
         GeneratorInstance closestGen = null;
-        double closestDist = 3.2;
+        double closestDist = 4.5; 
+
         for (GeneratorInstance gen : generators) {
             double dist = player.getLocation().distance(gen.getLocation());
             if (dist < closestDist) {
@@ -188,7 +184,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         }
 
         if (closestGen != null) {
-            event.setCancelled(true); // Защита от установки других блоков из руки
+            event.setCancelled(true);
             tryStartRepair(player, closestGen);
         }
     }
@@ -201,9 +197,21 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         GeneratorInstance gen = findGeneratorByInteraction(interaction);
         if (gen == null) return;
 
+        event.setCancelled(true); 
+
+        if (player.isSneaking()) {
+            stopRepairing(player);
+            gen.removeEntities();
+            generators.remove(gen);
+            
+            player.getInventory().addItem(getGeneratorItem());
+            player.sendMessage("§cГенератор успешно демонтирован.");
+            player.playSound(player.getLocation(), Sound.BLOCK_IRON_TRAPDOOR_CLOSE, 1.0f, 0.8f);
+            return;
+        }
+
         RepairSession session = activeSessions.get(player.getUniqueId());
         if (session != null && session.isSkillCheckActive()) {
-            event.setCancelled(true); 
             session.handleSkillCheckInput(); 
         }
     }
@@ -220,7 +228,9 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onPlayerSneak(PlayerToggleSneakEvent event) {
-        if (event.isSneaking()) stopRepairing(event.getPlayer());
+        if (event.isSneaking() && !activeSessions.containsKey(event.getPlayer().getUniqueId())) {
+            stopRepairing(event.getPlayer());
+        }
     }
 
     @EventHandler
@@ -232,7 +242,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         RepairSession session = activeSessions.remove(player.getUniqueId());
         if (session != null) {
             session.cancel();
-            player.sendActionBar(LegacyComponentSerializer.legacySection().deserialize("§cРемонт прерван."));
+            player.sendActionBar(LegacyComponentSerializer.legacySection().deserialize("§cРемонт прекращен."));
         }
     }
 
@@ -277,16 +287,13 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             }
         }
 
-        // ИСПРАВЛЕНО: Постепенный запуск анимации поршней по мере починки
         public void animatePistons(long ticks) {
             for (int i = 0; i < 5; i++) {
-                // Пороги активации для 5 пар поршней: 20%, 40%, 60%, 80%, 100%
                 double activationThreshold = (i + 1) * 20.0; 
                 ItemDisplay left = leftPistons.get(i);
                 ItemDisplay right = rightPistons.get(i);
 
                 if (this.progress >= activationThreshold || this.completed) {
-                    // Поршень активирован — рассчитываем диагональный ход
                     float shift = (float) (Math.sin((ticks + i * 4) * 0.6) * 0.05);
                     
                     Transformation tLeft = left.getTransformation();
@@ -297,7 +304,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                     tRight.getTranslation().set(shift * 0.86f, shift * 0.5f, 0);
                     right.setTransformation(tRight);
                 } else {
-                    // Генератор не починен до нужного уровня — поршень намертво стоит в пазу
                     Transformation tLeft = left.getTransformation();
                     tLeft.getTranslation().set(0, 0, 0);
                     left.setTransformation(tLeft);
@@ -311,32 +317,27 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
         private void complete() {
             this.completed = true;
-            // Лампа меняется на ярко светящийся Морской Фонарь
             lampDisplay.setItemStack(new ItemStack(Material.SEA_LANTERN));
 
-            Location lampLoc = location.clone().add(0, 2.75, 0.3);
+            Location lampLoc = location.clone().add(0, 2.9, 0.3); // Обновлена высота лампы
             lampLoc.getBlock().setType(Material.LIGHT);
             if (lampLoc.getBlock().getBlockData() instanceof Light lightData) {
                 lightData.setLevel(15);
                 lampLoc.getBlock().setBlockData(lightData);
             }
 
-            // Невидимый редстоун-блок без наложения текстур
             Location redstoneLoc = location.clone().getBlock().getLocation(); 
             BlockData originalData = redstoneLoc.getBlock().getBlockData();
-
             redstoneLoc.getBlock().setType(Material.REDSTONE_BLOCK, true);
 
-            // Маскируем блок пакетами под чистый воздух для игроков
             for (Player p : redstoneLoc.getWorld().getPlayers()) {
                 p.sendBlockChange(redstoneLoc, originalData);
             }
 
             Objects.requireNonNull(location.getWorld()).playSound(location, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             location.getWorld().playSound(location, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.5f, 1.5f);
-            location.getWorld().spawnParticle(Particle.FLASH, location.clone().add(0, 1, 0), 20);
+            location.getWorld().spawnParticle(Particle.FLASH, location.clone().add(0, 1.5, 0), 20); // Опущены эффекты завершения
 
-            // Бесконечный цикл работы мотора после успешного завершения починки
             new BukkitRunnable() {
                 private long ticks = 0;
                 @Override
@@ -348,7 +349,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                     ticks++;
                     animatePistons(ticks);
                     if (ticks % 10 == 0) {
-                        location.getWorld().spawnParticle(Particle.SMOKE, location.clone().add(0, 1.4, 0), 1, 0.1, 0.0, 0.1, 0.01);
+                        location.getWorld().spawnParticle(Particle.SMOKE, location.clone().add(0, 1.5, 0), 1, 0.1, 0.0, 0.1, 0.01);
                     }
                 }
             }.runTaskTimer(plugin, 0L, 2L);
@@ -359,6 +360,14 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 part.remove();
             }
             interaction.remove();
+            Location lampLoc = location.clone().add(0, 2.9, 0.3); // Обновлена высота при удалении
+            if (lampLoc.getBlock().getType() == Material.LIGHT) {
+                lampLoc.getBlock().setType(Material.AIR);
+            }
+            Location redstoneLoc = location.clone().getBlock().getLocation();
+            if (redstoneLoc.getBlock().getType() == Material.REDSTONE_BLOCK) {
+                redstoneLoc.getBlock().setType(Material.AIR);
+            }
         }
     }
 
@@ -381,7 +390,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
         @Override
         public void run() {
-            if (generator.isCompleted() || !player.isOnline() || player.getLocation().distance(generator.location) > 3.5) {
+            if (generator.isCompleted() || !player.isOnline() || player.getLocation().distance(generator.getLocation()) > 4.5) {
                 stopRepairing(player);
                 return;
             }
@@ -392,16 +401,15 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             if (skillCheckActive) {
                 updateSkillCheck();
             } else {
-                generator.addProgress(0.15); // Скорость обычной починки
+                generator.addProgress(0.20); 
                 displayProgress();
 
                 if (tickCounter % 6 == 0) {
                     generator.location.getWorld().playSound(generator.location, Sound.BLOCK_BONE_BLOCK_BREAK, 0.6f, 0.7f);
                     generator.location.getWorld().playSound(generator.location, Sound.BLOCK_IRON_TRAPDOOR_OPEN, 0.3f, 0.5f);
-                    generator.location.getWorld().spawnParticle(Particle.SMOKE, generator.location.clone().add(0, 1.3, 0), 2, 0.3, 0.1, 0.3, 0.02);
+                    generator.location.getWorld().spawnParticle(Particle.SMOKE, generator.location.clone().add(0, 1.5, 0), 2, 0.3, 0.1, 0.3, 0.02);
                 }
 
-                // Шанс появления Скиллчека
                 if (ThreadLocalRandom.current().nextDouble() < 0.015) {
                     startSkillCheck();
                 }
@@ -454,7 +462,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         public void handleSkillCheckInput() {
             if (!skillCheckActive) return;
             if (skillCheckPosition >= targetMin && skillCheckPosition <= targetMax) {
-                generator.addProgress(6.0); // Бонус за успешный скиллчек
+                generator.addProgress(6.0); 
                 player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.5f);
                 skillCheckActive = false;
             } else {
@@ -463,10 +471,10 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         }
 
         private void failSkillCheck() {
-            generator.addProgress(-8.0); // Штраф за провал взрыва
+            generator.addProgress(-8.0); 
             Objects.requireNonNull(generator.location.getWorld()).playSound(generator.location, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1.2f);
-            generator.location.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, generator.location.clone().add(0, 1.3, 0), 15, 0.4, 0.4, 0.4, 0.5);
-            generator.location.getWorld().spawnParticle(Particle.LARGE_SMOKE, generator.location.clone().add(0, 1.3, 0), 5);
+            generator.location.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, generator.location.clone().add(0, 1.5, 0), 15, 0.4, 0.4, 0.4, 0.5);
+            generator.location.getWorld().spawnParticle(Particle.LARGE_SMOKE, generator.location.clone().add(0, 1.5, 0), 5);
             skillCheckActive = false;
         }
     }
