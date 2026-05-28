@@ -9,6 +9,8 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.Light;
 import org.bukkit.entity.Interaction;
@@ -96,7 +98,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
             Location spawnLoc = event.getBlockPlaced().getLocation();
             spawnGenerator(spawnLoc);
-            event.getPlayer().sendMessage("§aГенератор установлен! ПКМ — ремонт, Shift+ЛКМ — сломать.");
+            event.getPlayer().sendMessage("§aГенератор установлен! ПКМ — ремонт/строительство, Shift+ЛКМ — сломать.");
         }
     }
 
@@ -132,7 +134,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             parts.add(rp);
         }
 
-        // Создаем экземпляр и запускаем его внутренний бесконечный цикл анимации
         GeneratorInstance gen = new GeneratorInstance(this, centerLoc, parts, leftPistons, rightPistons, lamp, interaction);
         generators.add(gen);
         gen.startAnimationLoop();
@@ -169,6 +170,63 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             }
         }
         return closest;
+    }
+
+    // УМНАЯ СИСТЕМА УСТАНОВКИ БЛОКОВ РЯДОМ С ГЕНЕРАТОРОМ
+    private boolean handleBlockPlacement(Player player, GeneratorInstance gen) {
+        ItemStack handItem = player.getInventory().getItemInMainHand();
+        // Если в руке ничего нет или это не блок — уходим в логику ремонта
+        if (handItem.getType() == Material.AIR || !handItem.getType().isBlock()) {
+            return false;
+        }
+
+        // Трейсим блоки СКВОЗЬ хитбокс генератора, чтобы найти реальную точку опоры
+        RayTraceResult blockTrace = player.rayTraceBlocks(4.5);
+        if (blockTrace != null && blockTrace.getHitBlock() != null) {
+            Block hitBlock = blockTrace.getHitBlock();
+            BlockFace face = blockTrace.getHitBlockFace();
+            Block targetBlock = hitBlock.getRelative(face);
+
+            Location genFloorLoc = gen.getLocation().getBlock().getLocation();
+            Location targetLoc = targetBlock.getLocation();
+
+            // ЗАЩИТА: Запрещаем ставить блоки внутрь центральной оси генератора (высота 3 блока)
+            if (targetLoc.getBlockX() == genFloorLoc.getBlockX() && 
+                targetLoc.getBlockZ() == genFloorLoc.getBlockZ() && 
+                (targetLoc.getBlockY() >= genFloorLoc.getBlockY() && targetLoc.getBlockY() <= genFloorLoc.getBlockY() + 2)) {
+                return false; 
+            }
+
+            // Проверяем, свободен ли блок (воздух, вода, трава)
+            if (targetBlock.getType().isAir() || targetBlock.isLiquid() || targetBlock.getType().name().contains("GRASS") || targetBlock.getType().name().contains("FERN")) {
+                
+                // Создаем фейковое событие установки для поддержки систем привата (WorldGuard и т.д.)
+                BlockPlaceEvent placeEvent = new BlockPlaceEvent(
+                        targetBlock, 
+                        targetBlock.getState(), 
+                        hitBlock, 
+                        handItem, 
+                        player, 
+                        true, 
+                        EquipmentSlot.HAND
+                );
+                Bukkit.getPluginManager().callEvent(placeEvent);
+
+                if (!placeEvent.isCancelled()) {
+                    targetBlock.setType(handItem.getType(), true);
+                    
+                    // Забираем предмет, если игрок в выживании
+                    if (player.getGameMode() != org.bukkit.GameMode.CREATIVE) {
+                        handItem.setAmount(handItem.getAmount() - 1);
+                    }
+                    
+                    // Воспроизводим звук установки конкретного блока
+                    player.getWorld().playSound(targetLoc, targetBlock.getBlockData().getSoundGroup().getPlaceSound(), 1.0f, 1.0f);
+                    return true; // Установка успешна!
+                }
+            }
+        }
+        return false;
     }
 
     private void tryStartRepair(Player player, GeneratorInstance gen) {
@@ -224,6 +282,10 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             GeneratorInstance target = getTargetGenerator(player, 4.5);
             if (target != null) {
                 event.setCancelled(true);
+                // Пытаемся поставить блок. Если в руках блок — строим. Если нет — чиним.
+                if (handleBlockPlacement(player, target)) {
+                    return; 
+                }
                 tryStartRepair(player, target);
             }
         }
@@ -255,6 +317,10 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         GeneratorInstance gen = findGeneratorByInteraction(interaction);
         if (gen != null) {
             event.setCancelled(true);
+            // Дублируем проверку постройки на случай прямого клика по хитбоксу
+            if (handleBlockPlacement(event.getPlayer(), gen)) {
+                return;
+            }
             tryStartRepair(event.getPlayer(), gen);
         }
     }
@@ -286,7 +352,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 .orElse(null);
     }
 
-    // --- ОБНОВЛЕННЫЙ КЛАСС ГЕНЕРАТОРА (С АВТОНОМНЫМ ТАЙМЕРОМ) ---
+    // --- КЛАСС ГЕНЕРАТОРА ---
     private static class GeneratorInstance {
         private final JavaPlugin plugin;
         private final Location location;
@@ -299,7 +365,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         private double progress = 0.0;
         private boolean completed = false;
         private long ticks = 0;
-        private BlockData originalBlockData = null; // Храним исходный блок земли/воздуха для маскировки
+        private BlockData originalBlockData = null;
 
         public GeneratorInstance(JavaPlugin plugin, Location location, List<ItemDisplay> parts, List<ItemDisplay> leftPistons, List<ItemDisplay> rightPistons, ItemDisplay lampDisplay, Interaction interaction) {
             this.plugin = plugin;
@@ -324,7 +390,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             }
         }
 
-        // Единый жизненный цикл генератора (анимация + скрытие редстоуна)
         public void startAnimationLoop() {
             new BukkitRunnable() {
                 @Override
@@ -335,14 +400,12 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                     }
 
                     ticks++;
-                    animatePistons(ticks); // Анимация работает всегда, независимо от присутствия игроков!
+                    animatePistons(ticks); 
 
-                    // Эффекты заведенного генератора + циклическое скрытие редстоун-блока
                     if (completed) {
                         if (ticks % 10 == 0) {
                             location.getWorld().spawnParticle(Particle.SMOKE, location.clone().add(0, 0.9, 0), 1, 0.1, 0.0, 0.1, 0.01);
                             
-                            // Каждые 10 тиков принудительно прячем блок редстоуна от клиентов в радиусе 50 блоков
                             if (originalBlockData != null) {
                                 for (Player p : location.getWorld().getPlayers()) {
                                     if (p.getWorld().equals(location.getWorld()) && p.getLocation().distanceSquared(location) < 2500) {
@@ -395,13 +458,9 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 lampLoc.getBlock().setBlockData(lightData);
             }
 
-            // Запоминаем, что тут было (воздух, трава и т.д.) до установки редстоун-блока
             this.originalBlockData = location.getBlock().getBlockData();
-            
-            // Физически ставим редстоун-блок, чтобы питать схемы
             location.getBlock().setType(Material.REDSTONE_BLOCK, true);
 
-            // Сразу же маскируем его первичным пакетом
             for (Player p : location.getWorld().getPlayers()) {
                 p.sendBlockChange(location, originalBlockData);
             }
@@ -422,7 +481,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 lampLoc.getBlock().setType(Material.AIR);
             }
             
-            // Возвращаем исходный блок на место редстоуна при удалении
             if (location.getBlock().getType() == Material.REDSTONE_BLOCK) {
                 if (originalBlockData != null) {
                     location.getBlock().setBlockData(originalBlockData, true);
@@ -433,7 +491,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    // --- КЛАСС СЕССИИ (БЕЗ УПРАВЛЕНИЯ АНИМАЦИЕЙ ПОРШНЕЙ) ---
+    // --- КЛАСС СЕССИИ ---
     private class RepairSession extends BukkitRunnable {
         private final Player player;
         private final GeneratorInstance generator;
@@ -460,7 +518,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             }
 
             tickCounter++;
-            // generator.animatePistons(...) отсюда удален, так как генератор теперь крутит таймер сам!
 
             if (skillCheckActive) {
                 updateSkillCheck();
