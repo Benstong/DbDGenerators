@@ -112,7 +112,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         List<ItemDisplay> leftPistons = new ArrayList<>();
         List<ItemDisplay> rightPistons = new ArrayList<>();
 
-        // ТВОЯ БАЗА ГЕОМЕТРИИ КОРПУСА
         parts.add(spawnPart(centerLoc, Material.BLAST_FURNACE, 0, 0, 0, 1.2f, 0.7f, 1.2f, 0, 0));
         parts.add(spawnPart(centerLoc, Material.OBSERVER, 0, 0.35, 0.45, 0.8f, 0.6f, 0.3f, 0, 0));
         parts.add(spawnPart(centerLoc, Material.HOPPER, 0, 0.7, -0.3, 0.7f, 0.6f, 0.7f, 0, 0));
@@ -122,7 +121,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         ItemDisplay lamp = spawnPart(centerLoc, Material.REDSTONE_LAMP, 0, 2.2, 0.3, 0.45f, 0.45f, 0.45f, 0, 0);
         parts.add(lamp);
 
-        // ТВОИ ПОРШНИ (Material.PISTON, высота 0.62, ход строго по Y)
         double[] zOffsets = {-0.4, -0.2, 0.0, 0.2, 0.4};
         for (double zOffset : zOffsets) {
             ItemDisplay lp = spawnPart(centerLoc, Material.PISTON, -0.45, 0.62, zOffset, 0.22f, 0.22f, 0.22f, 0, 0);
@@ -134,7 +132,10 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             parts.add(rp);
         }
 
-        generators.add(new GeneratorInstance(this, centerLoc, parts, leftPistons, rightPistons, lamp, interaction));
+        // Создаем экземпляр и запускаем его внутренний бесконечный цикл анимации
+        GeneratorInstance gen = new GeneratorInstance(this, centerLoc, parts, leftPistons, rightPistons, lamp, interaction);
+        generators.add(gen);
+        gen.startAnimationLoop();
     }
 
     private ItemDisplay spawnPart(Location center, Material mat, double dx, double dy, double dz, float sx, float sy, float sz, float yaw, float pitch) {
@@ -149,7 +150,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         });
     }
 
-    // --- СИСТЕМА УМНОГО ТАРГЕТИНГА (RayTrace + Proximity fallback) ---
     private GeneratorInstance getTargetGenerator(Player player, double maxDist) {
         Location eye = player.getEyeLocation();
         RayTraceResult result = player.getWorld().rayTraceEntities(eye, eye.getDirection(), maxDist, ent -> ent instanceof Interaction);
@@ -159,7 +159,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             if (gen != null) return gen;
         }
         
-        // Фолбэк на случай рассинхрона хитбокса на стороне клиента
         GeneratorInstance closest = null;
         double minDist = 3.5; 
         for (GeneratorInstance gen : generators) {
@@ -199,14 +198,12 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         player.playSound(player.getLocation(), Sound.BLOCK_IRON_TRAPDOOR_CLOSE, 1.0f, 0.8f);
     }
 
-    // --- ОБРАБОТЧИКИ СОБЫТИЙ (100% СРАБАТЫВАНИЕ) ---
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (event.getHand() == EquipmentSlot.OFF_HAND) return;
         Player player = event.getPlayer();
         Action action = event.getAction();
 
-        // ЛКМ (Воздух / Блок) — Скиллчек или Демонтаж
         if (action == Action.LEFT_CLICK_AIR || action == Action.LEFT_CLICK_BLOCK) {
             RepairSession session = activeSessions.get(player.getUniqueId());
             if (session != null && session.isSkillCheckActive()) {
@@ -223,7 +220,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             }
         }
         
-        // ПКМ (Воздух / Блок) — Ремонт
         if (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) {
             GeneratorInstance target = getTargetGenerator(player, 4.5);
             if (target != null) {
@@ -290,7 +286,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 .orElse(null);
     }
 
-    // --- КЛАСС ГЕНЕРАТОРА ---
+    // --- ОБНОВЛЕННЫЙ КЛАСС ГЕНЕРАТОРА (С АВТОНОМНЫМ ТАЙМЕРОМ) ---
     private static class GeneratorInstance {
         private final JavaPlugin plugin;
         private final Location location;
@@ -299,8 +295,11 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         private final List<ItemDisplay> rightPistons;
         private final ItemDisplay lampDisplay;
         private final Interaction interaction;
+        
         private double progress = 0.0;
         private boolean completed = false;
+        private long ticks = 0;
+        private BlockData originalBlockData = null; // Храним исходный блок земли/воздуха для маскировки
 
         public GeneratorInstance(JavaPlugin plugin, Location location, List<ItemDisplay> parts, List<ItemDisplay> leftPistons, List<ItemDisplay> rightPistons, ItemDisplay lampDisplay, Interaction interaction) {
             this.plugin = plugin;
@@ -325,7 +324,38 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             }
         }
 
-        // ТВОЯ ОРИГИНАЛЬНАЯ АНИМАЦИЯ ХОДА ПОРШНЕЙ (Вверх/Вниз по Y)
+        // Единый жизненный цикл генератора (анимация + скрытие редстоуна)
+        public void startAnimationLoop() {
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (!interaction.isValid()) {
+                        cancel();
+                        return;
+                    }
+
+                    ticks++;
+                    animatePistons(ticks); // Анимация работает всегда, независимо от присутствия игроков!
+
+                    // Эффекты заведенного генератора + циклическое скрытие редстоун-блока
+                    if (completed) {
+                        if (ticks % 10 == 0) {
+                            location.getWorld().spawnParticle(Particle.SMOKE, location.clone().add(0, 0.9, 0), 1, 0.1, 0.0, 0.1, 0.01);
+                            
+                            // Каждые 10 тиков принудительно прячем блок редстоуна от клиентов в радиусе 50 блоков
+                            if (originalBlockData != null) {
+                                for (Player p : location.getWorld().getPlayers()) {
+                                    if (p.getWorld().equals(location.getWorld()) && p.getLocation().distanceSquared(location) < 2500) {
+                                        p.sendBlockChange(location, originalBlockData);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }.runTaskTimer(plugin, 0L, 2L);
+        }
+
         public void animatePistons(long ticks) {
             for (int i = 0; i < 5; i++) {
                 double activationThreshold = (i + 1) * 20.0; 
@@ -365,35 +395,20 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 lampLoc.getBlock().setBlockData(lightData);
             }
 
-            // ТВОЯ ФИЧА: Невидимая редстоун активация на земле под генератором
-            Location redstoneLoc = location.clone(); 
-            BlockData originalData = redstoneLoc.getBlock().getBlockData();
-            redstoneLoc.getBlock().setType(Material.REDSTONE_BLOCK, true);
+            // Запоминаем, что тут было (воздух, трава и т.д.) до установки редстоун-блока
+            this.originalBlockData = location.getBlock().getBlockData();
+            
+            // Физически ставим редстоун-блок, чтобы питать схемы
+            location.getBlock().setType(Material.REDSTONE_BLOCK, true);
 
-            for (Player p : redstoneLoc.getWorld().getPlayers()) {
-                p.sendBlockChange(redstoneLoc, originalData);
+            // Сразу же маскируем его первичным пакетом
+            for (Player p : location.getWorld().getPlayers()) {
+                p.sendBlockChange(location, originalBlockData);
             }
 
             Objects.requireNonNull(location.getWorld()).playSound(location, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             location.getWorld().playSound(location, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.5f, 1.5f);
             location.getWorld().spawnParticle(Particle.FLASH, location.clone().add(0, 1, 0), 20);
-
-            // Бесконечный цикл работы заведенного генератора
-            new BukkitRunnable() {
-                private long ticks = 0;
-                @Override
-                public void run() {
-                    if (!interaction.isValid()) {
-                        cancel();
-                        return;
-                    }
-                    ticks++;
-                    animatePistons(ticks);
-                    if (ticks % 10 == 0) {
-                        location.getWorld().spawnParticle(Particle.SMOKE, location.clone().add(0, 0.9, 0), 1, 0.1, 0.0, 0.1, 0.01);
-                    }
-                }
-            }.runTaskTimer(plugin, 0L, 2L);
         }
 
         public void removeEntities() {
@@ -406,14 +421,19 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             if (lampLoc.getBlock().getType() == Material.LIGHT) {
                 lampLoc.getBlock().setType(Material.AIR);
             }
-            Location redstoneLoc = location.clone();
-            if (redstoneLoc.getBlock().getType() == Material.REDSTONE_BLOCK) {
-                redstoneLoc.getBlock().setType(Material.AIR);
+            
+            // Возвращаем исходный блок на место редстоуна при удалении
+            if (location.getBlock().getType() == Material.REDSTONE_BLOCK) {
+                if (originalBlockData != null) {
+                    location.getBlock().setBlockData(originalBlockData, true);
+                } else {
+                    location.getBlock().setType(Material.AIR);
+                }
             }
         }
     }
 
-    // --- СЕССИЯ РЕМОНТА ---
+    // --- КЛАСС СЕССИИ (БЕЗ УПРАВЛЕНИЯ АНИМАЦИЕЙ ПОРШНЕЙ) ---
     private class RepairSession extends BukkitRunnable {
         private final Player player;
         private final GeneratorInstance generator;
@@ -434,19 +454,18 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
         @Override
         public void run() {
-            // Дистанция синхронизирована с RayTrace
             if (generator.isCompleted() || !player.isOnline() || player.getLocation().distance(generator.getLocation()) > 5.0) {
                 stopRepairing(player);
                 return;
             }
 
             tickCounter++;
-            generator.animatePistons(tickCounter); 
+            // generator.animatePistons(...) отсюда удален, так как генератор теперь крутит таймер сам!
 
             if (skillCheckActive) {
                 updateSkillCheck();
             } else {
-                generator.addProgress(0.15); // Твоя скорость починки
+                generator.addProgress(0.15); 
                 displayProgress();
 
                 if (tickCounter % 6 == 0) {
