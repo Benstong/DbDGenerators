@@ -1,5 +1,7 @@
 package com.dbdgenerators;
 
+import com.destroystokyo.paper.profile.PlayerProfile;
+import com.destroystokyo.paper.profile.ProfileProperty;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -7,6 +9,7 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.Light;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
@@ -15,13 +18,14 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.ShapedRecipe;
-import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Transformation;
@@ -48,15 +52,22 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
     }
 
     public ItemStack getGeneratorItem() {
-        ItemStack item = new ItemStack(Material.IRON_BLOCK);
-        ItemMeta meta = item.getItemMeta();
+        // Используем голову с кастомной Base64 текстурой двигателя вместо железного блока
+        ItemStack item = new ItemStack(Material.PLAYER_HEAD);
+        SkullMeta meta = (SkullMeta) item.getItemMeta();
+        
         if (meta != null) {
-            meta.setDisplayName("§e§lГенератор из DbD (Ванильный)");
+            PlayerProfile profile = Bukkit.createProfile(UUID.randomUUID());
+            // Base64 текстура механического блока (выглядит как технический ящик)
+            profile.setProperty(new ProfileProperty("textures", "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvMzkzZDUxNmU3YzFjZGI1MjA0ZTYyOGFkOWFlYzRhOGY5NWQ4ZWU4Y2QzNzEzOWQwNmUzYTk2OWU5OTliYjNiMCJ9fX0="));
+            meta.setPlayerProfile(profile);
+            
+            meta.setDisplayName("§e§lГенератор из DbD");
             meta.setLore(Arrays.asList(
                     "§7Установите этот блок, чтобы собрать",
-                    "§7генератор из ванильных деталей.",
+                    "§7детализированный генератор.",
                     "",
-                    "§6Заведите его, чтобы подать редстоун сигнал!"
+                    "§6Подаёт редстоун-сигнал после починки!"
             ));
             item.setItemMeta(meta);
         }
@@ -90,41 +101,54 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
             Location spawnLoc = event.getBlockPlaced().getLocation();
             spawnGenerator(spawnLoc);
-            event.getPlayer().sendMessage("§aВанильный генератор успешно собран!");
+            event.getPlayer().sendMessage("§aГенератор установлен!");
         }
     }
 
     public void spawnGenerator(Location loc) {
-        Location centerLoc = loc.getBlock().getLocation().add(0.5, 0.1, 0.5);
+        Location centerLoc = loc.getBlock().getLocation().add(0.5, 0.0, 0.5);
 
         Interaction interaction = centerLoc.getWorld().spawn(centerLoc, Interaction.class, ent -> {
-            ent.setInteractionWidth(1.4f);
-            ent.setInteractionHeight(2.0f);
+            ent.setInteractionWidth(1.6f);
+            ent.setInteractionHeight(2.4f);
         });
 
         List<ItemDisplay> parts = new ArrayList<>();
 
-        // 1. Основание генератора - Большая плавильная печь
-        parts.add(spawnPart(centerLoc, Material.BLAST_FURNACE, 0, 0, 0, 1.2f, 0.9f, 1.2f));
+        // 1. Основной корпус (Широкая плавильная печь)
+        parts.add(spawnPart(centerLoc, Material.BLAST_FURNACE, 0, 0, 0, 1.2f, 0.7f, 1.2f, 0, 0));
+        
+        // 2. Лицевая панель с проводами (Наблюдатель)
+        parts.add(spawnPart(centerLoc, Material.OBSERVER, 0, 0.35, 0.45, 0.8f, 0.6f, 0.3f, 0, 0));
+        
+        // 3. Топливный бак/выхлоп сзади (Воронка)
+        parts.add(spawnPart(centerLoc, Material.HOPPER, 0, 0.7, -0.3, 0.7f, 0.6f, 0.7f, 0, 0));
 
-        // 2. Левый поршень мотора - Маленькая наковальня
-        parts.add(spawnPart(centerLoc, Material.ANVIL, -0.25, 0.65, 0, 0.5f, 0.5f, 0.5f));
+        // 4. Левый поршень мотора (Точило, повернуто)
+        parts.add(spawnPart(centerLoc, Material.GRINDSTONE, -0.4, 0.6, 0, 0.6f, 0.6f, 0.6f, 90, 0));
 
-        // 3. Правый поршень мотора - Маленькое точило
-        parts.add(spawnPart(centerLoc, Material.GRINDSTONE, 0.25, 0.65, 0, 0.5f, 0.5f, 0.5f));
+        // 5. Правый поршень мотора (Точило, повернуто)
+        parts.add(spawnPart(centerLoc, Material.GRINDSTONE, 0.4, 0.6, 0, 0.6f, 0.6f, 0.6f, 90, 0));
+        
+        // 6. Крепление мачты освещения (Наковальня)
+        parts.add(spawnPart(centerLoc, Material.ANVIL, 0, 0.75, 0.3, 0.5f, 0.4f, 0.5f, 0, 0));
 
-        // 4. Мачта освещения - Тонкий высокий громоотвод
-        parts.add(spawnPart(centerLoc, Material.LIGHTNING_ROD, 0, 1.1, 0, 0.8f, 1.6f, 0.8f));
+        // 7. Сама мачта (Громоотвод, вытянут вверх)
+        parts.add(spawnPart(centerLoc, Material.LIGHTNING_ROD, 0, 1.3, 0.3, 0.5f, 1.8f, 0.5f, 0, 0));
 
-        // 5. Сигнальная лампа - Уменьшенная редстоун лампа
-        ItemDisplay lamp = spawnPart(centerLoc, Material.REDSTONE_LAMP, 0, 2.0, 0, 0.4f, 0.4f, 0.4f);
+        // 8. Сигнальная лампа на мачте
+        ItemDisplay lamp = spawnPart(centerLoc, Material.REDSTONE_LAMP, 0, 2.2, 0.3, 0.45f, 0.45f, 0.45f, 0, 0);
         parts.add(lamp);
 
         generators.add(new GeneratorInstance(centerLoc, parts, lamp, interaction));
     }
 
-    private ItemDisplay spawnPart(Location center, Material mat, double dx, double dy, double dz, float sx, float sy, float sz) {
+    // Обновленный метод спавна, позволяющий вращать детали по осям (yaw, pitch)
+    private ItemDisplay spawnPart(Location center, Material mat, double dx, double dy, double dz, float sx, float sy, float sz, float yaw, float pitch) {
         Location partLoc = center.clone().add(dx, dy, dz);
+        partLoc.setYaw(yaw);
+        partLoc.setPitch(pitch);
+        
         return partLoc.getWorld().spawn(partLoc, ItemDisplay.class, ent -> {
             ent.setItemStack(new ItemStack(mat));
             Transformation t = ent.getTransformation();
@@ -149,11 +173,26 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
     }
 
     @EventHandler
-    public void onSkillCheckClick(PlayerInteractEvent event) {
+    public void onGeneratorLeftClickEntity(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Interaction interaction)) return;
+        if (!(event.getDamager() instanceof Player player)) return;
+
+        GeneratorInstance gen = findGeneratorByInteraction(interaction);
+        if (gen == null) return;
+
+        RepairSession session = activeSessions.get(player.getUniqueId());
+        if (session != null && session.isSkillCheckActive()) {
+            event.setCancelled(true); 
+            session.handleSkillCheckInput(); 
+        }
+    }
+
+    @EventHandler
+    public void onSkillCheckClickAir(PlayerInteractEvent event) {
         Player player = event.getPlayer();
         RepairSession session = activeSessions.get(player.getUniqueId());
 
-        if (session != null && (event.getAction() == Action.LEFT_CLICK_AIR || event.getAction() == Action.LEFT_CLICK_BLOCK)) {
+        if (session != null && session.isSkillCheckActive() && (event.getAction() == Action.LEFT_CLICK_AIR || event.getAction() == Action.LEFT_CLICK_BLOCK)) {
             event.setCancelled(true);
             session.handleSkillCheckInput();
         }
@@ -173,7 +212,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         RepairSession session = activeSessions.remove(player.getUniqueId());
         if (session != null) {
             session.cancel();
-            player.sendActionBar(LegacyComponentSerializer.legacySection().deserialize("§cВы отошли. Прогресс сохранен!"));
+            player.sendActionBar(LegacyComponentSerializer.legacySection().deserialize("§cРемонт прерван."));
         }
     }
 
@@ -216,15 +255,22 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
             lampDisplay.setItemStack(new ItemStack(Material.SEA_LANTERN));
 
-            Location lampLoc = location.clone().add(0, 2, 0);
+            Location lampLoc = location.clone().add(0, 2.2, 0.3);
             lampLoc.getBlock().setType(Material.LIGHT);
             if (lampLoc.getBlock().getBlockData() instanceof Light lightData) {
                 lightData.setLevel(15);
                 lampLoc.getBlock().setBlockData(lightData);
             }
 
+            // Пакетный редстоун (невидимый блок)
             Location redstoneLoc = location.clone().subtract(0, 1, 0);
-            redstoneLoc.getBlock().setType(Material.REDSTONE_BLOCK);
+            BlockData originalData = redstoneLoc.getBlock().getBlockData();
+
+            redstoneLoc.getBlock().setType(Material.REDSTONE_BLOCK, true);
+
+            for (Player p : redstoneLoc.getWorld().getPlayers()) {
+                p.sendBlockChange(redstoneLoc, originalData);
+            }
 
             Objects.requireNonNull(location.getWorld()).playSound(location, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             location.getWorld().playSound(location, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.5f, 1.5f);
@@ -255,6 +301,8 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             this.generator = generator;
         }
 
+        public boolean isSkillCheckActive() { return skillCheckActive; }
+
         @Override
         public void run() {
             if (generator.isCompleted() || !player.isOnline() || player.getLocation().distance(generator.location) > 3.5) {
@@ -272,9 +320,8 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
                 if (tickCounter % 6 == 0) {
                     generator.location.getWorld().playSound(generator.location, Sound.BLOCK_BONE_BLOCK_BREAK, 0.6f, 0.7f);
-                    // Вот тут исправлено название звука:
                     generator.location.getWorld().playSound(generator.location, Sound.BLOCK_IRON_TRAPDOOR_OPEN, 0.3f, 0.5f);
-                    generator.location.getWorld().spawnParticle(Particle.SMOKE, generator.location.clone().add(0, 0.7, 0), 2, 0.2, 0.1, 0.2, 0.02);
+                    generator.location.getWorld().spawnParticle(Particle.SMOKE, generator.location.clone().add(0, 0.9, 0), 2, 0.3, 0.1, 0.3, 0.02);
                 }
 
                 if (ThreadLocalRandom.current().nextDouble() < 0.015) {
@@ -343,8 +390,8 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         private void failSkillCheck() {
             generator.addProgress(-8.0); 
             Objects.requireNonNull(generator.location.getWorld()).playSound(generator.location, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1.2f);
-            generator.location.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, generator.location.clone().add(0, 0.7, 0), 15, 0.3, 0.3, 0.3, 0.5);
-            generator.location.getWorld().spawnParticle(Particle.LARGE_SMOKE, generator.location.clone().add(0, 0.7, 0), 5);
+            generator.location.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, generator.location.clone().add(0, 0.9, 0), 15, 0.4, 0.4, 0.4, 0.5);
+            generator.location.getWorld().spawnParticle(Particle.LARGE_SMOKE, generator.location.clone().add(0, 0.9, 0), 5);
             skillCheckActive = false;
         }
     }
