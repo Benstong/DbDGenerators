@@ -107,9 +107,12 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         List<ItemDisplay> leftPistons = new ArrayList<>();
         List<ItemDisplay> rightPistons = new ArrayList<>();
 
-        // Основа корпуса
+        // Основа корпуса (Плавильня)
         parts.add(spawnPart(centerLoc, Material.BLAST_FURNACE, 0, 0, 0, 1.2f, 0.7f, 1.2f, 0, 0));
-        parts.add(spawnPart(centerLoc, Material.OBSERVER, 0, 0.35, 0.45, 0.8f, 0.6f, 0.3f, 0, 0));
+        
+        // ИСПРАВЛЕНО: Наблюдатель стал меньше (0.5x0.4x0.25) и немного глубже посажен (0.42 вместо 0.45)
+        parts.add(spawnPart(centerLoc, Material.OBSERVER, 0, 0.32, 0.42, 0.5f, 0.4f, 0.25f, 0, 0));
+        
         parts.add(spawnPart(centerLoc, Material.HOPPER, 0, 0.7, -0.3, 0.7f, 0.6f, 0.7f, 0, 0));
         parts.add(spawnPart(centerLoc, Material.ANVIL, 0, 0.75, 0.3, 0.5f, 0.4f, 0.5f, 0, 0));
         parts.add(spawnPart(centerLoc, Material.LIGHTNING_ROD, 0, 1.3, 0.3, 0.5f, 1.8f, 0.5f, 0, 0));
@@ -117,16 +120,16 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         ItemDisplay lamp = spawnPart(centerLoc, Material.REDSTONE_LAMP, 0, 2.2, 0.3, 0.45f, 0.45f, 0.45f, 0, 0);
         parts.add(lamp);
 
-        // Спавним 5 пар маленьких поршней по бокам (Z-отступы от -0.4 до 0.4)
+        // ИСПРАВЛЕНО: Спавним 5 пар ВЕРХУШЕК поршней, утопленных в корпус и под углом
         double[] zOffsets = {-0.4, -0.2, 0.0, 0.2, 0.4};
         for (double zOffset : zOffsets) {
-            // Левый борт (X = -0.45, смотрят вверх)
-            ItemDisplay lp = spawnPart(centerLoc, Material.PISTON, -0.45, 0.62, zOffset, 0.22f, 0.22f, 0.22f, 0, 0);
+            // Левый борт: смещен к центру (X = -0.38), развернут вовне (Yaw -90, Pitch -30)
+            ItemDisplay lp = spawnPart(centerLoc, Material.PISTON_HEAD, -0.38, 0.52, zOffset, 0.25f, 0.25f, 0.25f, -90, -30);
             leftPistons.add(lp);
             parts.add(lp);
 
-            // Правый борт (X = 0.45, смотрят вверх)
-            ItemDisplay rp = spawnPart(centerLoc, Material.PISTON, 0.45, 0.62, zOffset, 0.22f, 0.22f, 0.22f, 0, 0);
+            // Правый борт: смещен к центру (X = 0.38), развернут вовне (Yaw 90, Pitch -30)
+            ItemDisplay rp = spawnPart(centerLoc, Material.PISTON_HEAD, 0.38, 0.52, zOffset, 0.25f, 0.25f, 0.25f, 90, -30);
             rightPistons.add(rp);
             parts.add(rp);
         }
@@ -243,7 +246,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             }
         }
 
-        // Логика анимации поршней по синусоиде в зависимости от прогресса
+        // ИСПРАВЛЕНО: Сложная векторная анимация движения верхушек поршней под углом
         public void animatePistons(long ticks) {
             for (int i = 0; i < 5; i++) {
                 double activationThreshold = (i + 1) * 20.0; // 20%, 40%, 60%, 80%, 100%
@@ -251,18 +254,20 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 ItemDisplay right = rightPistons.get(i);
 
                 if (this.progress >= activationThreshold || this.completed) {
-                    // Анимируем движение вверх/вниз (смещение фазы i * 3, чтобы двигались несинхронно)
-                    float dy = (float) (Math.sin((ticks + i * 3) * 0.5) * 0.07);
+                    // Рассчитываем ход движения
+                    float shift = (float) (Math.sin((ticks + i * 4) * 0.6) * 0.05);
                     
+                    // Левые поршни: двигаются влево-вверх по диагонали своего наклона
                     Transformation tLeft = left.getTransformation();
-                    tLeft.getTranslation().set(0, dy, 0);
+                    tLeft.getTranslation().set(-shift * 0.86f, shift * 0.5f, 0);
                     left.setTransformation(tLeft);
 
+                    // Правые поршни: двигаются вправо-вверх по диагонали своего наклона
                     Transformation tRight = right.getTransformation();
-                    tRight.getTranslation().set(0, dy, 0);
+                    tRight.getTranslation().set(shift * 0.86f, shift * 0.5f, 0);
                     right.setTransformation(tRight);
                 } else {
-                    // Если прогресс не достигнут, возвращаем поршень в дефолтную позицию
+                    // Если порог прогресса не взят, поршни полностью неподвижны в пазах
                     Transformation tLeft = left.getTransformation();
                     tLeft.getTranslation().set(0, 0, 0);
                     left.setTransformation(tLeft);
@@ -285,14 +290,14 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 lampLoc.getBlock().setBlockData(lightData);
             }
 
-            // ИСПРАВЛЕНО: Редстоун активируется ПРЯМО НА ПОВЕРХНОСТИ (на уровне генератора)
-            Location redstoneLoc = location.clone(); 
+            // ИСПРАВЛЕНО: Редстоун строго на координатах генератора, текстуры не перекрываются
+            Location redstoneLoc = location.clone().getBlock().getLocation(); 
             BlockData originalData = redstoneLoc.getBlock().getBlockData();
 
-            // Устанавливаем физический блок редстоуна для питания соседней пыли/повторителей
+            // Создаем физическую силу сигнала на сервере
             redstoneLoc.getBlock().setType(Material.REDSTONE_BLOCK, true);
 
-            // Пакетный фейк: для игроков блок остается воздухом/тем, чем был
+            // Пакетная маскировка: возвращаем клиентам отображение старого блока (например, воздуха)
             for (Player p : redstoneLoc.getWorld().getPlayers()) {
                 p.sendBlockChange(redstoneLoc, originalData);
             }
@@ -301,7 +306,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             location.getWorld().playSound(location, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.5f, 1.5f);
             location.getWorld().spawnParticle(Particle.FLASH, location.clone().add(0, 1, 0), 20);
 
-            // Бесконечный цикл анимации для уже заведенного генератора
+            // Таймер бесконечной работы поршней заведённого генератора
             new BukkitRunnable() {
                 private long ticks = 0;
                 @Override
@@ -352,7 +357,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             }
 
             tickCounter++;
-            generator.animatePistons(tickCounter); // Анимируем поршни во время починки
+            generator.animatePistons(tickCounter); 
 
             if (skillCheckActive) {
                 updateSkillCheck();
