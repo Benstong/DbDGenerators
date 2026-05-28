@@ -9,7 +9,6 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
-import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.Light;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
@@ -29,6 +28,7 @@ import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Transformation;
 
 import java.util.*;
@@ -50,6 +50,8 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         for (GeneratorInstance gen : generators) {
             gen.removeEntities();
         }
+        generators.clear();
+        activeSessions.clear();
     }
 
     public ItemStack getGeneratorItem() {
@@ -108,20 +110,15 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         List<ItemDisplay> leftPistons = new ArrayList<>();
         List<ItemDisplay> rightPistons = new ArrayList<>();
 
-        // ИСПРАВЛЕНО: Корпус ровно 1 блок в высоту (sy=1.0) и поднят на половину высоты (dy=0.5), чтобы стоять на земле
         parts.add(spawnPart(centerLoc, Material.BLAST_FURNACE, 0, 0.5, 0, 1.2f, 1.0f, 1.2f, 0, 0));
-        
-        // Все остальные детали приподняты, чтобы лежать ровно на новом корпусе
         parts.add(spawnPart(centerLoc, Material.OBSERVER, 0, 1.0, 0.42, 0.5f, 0.4f, 0.25f, 0, 0));
         parts.add(spawnPart(centerLoc, Material.HOPPER, 0, 1.3, -0.3, 0.7f, 0.6f, 0.7f, 0, 0));
         parts.add(spawnPart(centerLoc, Material.ANVIL, 0, 1.35, 0.3, 0.5f, 0.4f, 0.5f, 0, 0));
         parts.add(spawnPart(centerLoc, Material.LIGHTNING_ROD, 0, 2.0, 0.3, 0.5f, 1.8f, 0.5f, 0, 0));
 
-        // Лампа теперь на высоте 2.9
         ItemDisplay lamp = spawnPart(centerLoc, Material.REDSTONE_LAMP, 0, 2.9, 0.3, 0.45f, 0.45f, 0.45f, 0, 0);
         parts.add(lamp);
 
-        // Поршни (dy=1.1, чтобы они красиво торчали из верхней части корпуса)
         double[] zOffsets = {-0.4, -0.2, 0.0, 0.2, 0.4};
         for (double zOffset : zOffsets) {
             ItemDisplay lp = spawnPart(centerLoc, Material.PISTON_HEAD, -0.38, 1.1, zOffset, 0.25f, 0.25f, 0.25f, -90, -30);
@@ -148,87 +145,131 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         });
     }
 
+    // --- УМНЫЙ ПОИСК ГЕНЕРАТОРА (RayTrace + Proximity) ---
+    private GeneratorInstance getTargetGenerator(Player player, double maxDist) {
+        Location eye = player.getEyeLocation();
+        RayTraceResult result = player.getWorld().rayTraceEntities(eye, eye.getDirection(), maxDist, ent -> ent instanceof Interaction);
+        
+        if (result != null && result.getHitEntity() instanceof Interaction interaction) {
+            GeneratorInstance gen = findGeneratorByInteraction(interaction);
+            if (gen != null) return gen;
+        }
+        
+        // Фолбэк: если RayTrace промазал, но игрок стоит совсем рядом (в радиусе 3 блоков)
+        GeneratorInstance closest = null;
+        double minDist = 3.0; 
+        for (GeneratorInstance gen : generators) {
+            double dist = player.getLocation().distance(gen.getLocation());
+            if (dist < minDist) {
+                minDist = dist;
+                closest = gen;
+            }
+        }
+        return closest;
+    }
+
     private void tryStartRepair(Player player, GeneratorInstance gen) {
         if (gen == null || gen.isCompleted()) return;
-        if (activeSessions.containsKey(player.getUniqueId())) return;
+
+        RepairSession currentSession = activeSessions.get(player.getUniqueId());
+        if (currentSession != null) {
+            if (currentSession.getGenerator().equals(gen)) {
+                return; // Игрок уже чинит этот генератор
+            } else {
+                stopRepairing(player); // Чинил другой? Обрываем старую сессию
+            }
+        }
 
         RepairSession session = new RepairSession(player, gen);
         activeSessions.put(player.getUniqueId(), session);
         session.runTaskTimer(this, 0L, 2L);
+        player.sendMessage("§aРемонт начат! (Нажми Shift, чтобы отпустить)");
     }
 
+    private void breakGenerator(Player player, GeneratorInstance gen) {
+        if (!generators.contains(gen)) return; // Защита от дюпов
+        
+        stopRepairing(player);
+        gen.removeEntities();
+        generators.remove(gen);
+        
+        player.getInventory().addItem(getGeneratorItem());
+        player.sendMessage("§cГенератор демонтирован.");
+        player.playSound(player.getLocation(), Sound.BLOCK_IRON_TRAPDOOR_CLOSE, 1.0f, 0.8f);
+    }
+
+    // --- ГЛАВНЫЙ ПЕРЕХВАТЧИК КЛИКОВ (100% срабатывание) ---
     @EventHandler
-    public void onGeneratorInteractEntity(PlayerInteractEntityEvent event) {
+    public void onPlayerInteract(PlayerInteractEvent event) {
+        if (event.getHand() == EquipmentSlot.OFF_HAND) return;
+        Player player = event.getPlayer();
+        Action action = event.getAction();
+
+        // ЛКМ (Воздух или Блок) - Скиллчек или Демонтаж
+        if (action == Action.LEFT_CLICK_AIR || action == Action.LEFT_CLICK_BLOCK) {
+            RepairSession session = activeSessions.get(player.getUniqueId());
+            
+            if (session != null && session.isSkillCheckActive()) {
+                event.setCancelled(true);
+                session.handleSkillCheckInput();
+                return;
+            }
+            
+            if (player.isSneaking()) {
+                GeneratorInstance target = getTargetGenerator(player, 5.0);
+                if (target != null) {
+                    event.setCancelled(true);
+                    breakGenerator(player, target);
+                }
+            }
+        }
+        
+        // ПКМ (Воздух или Блок) - Ремонт
+        if (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) {
+            GeneratorInstance target = getTargetGenerator(player, 5.0);
+            if (target != null) {
+                event.setCancelled(true);
+                tryStartRepair(player, target);
+            }
+        }
+    }
+
+    // Дублирующий перехватчик на случай, если клиент прислал пакет прямого удара по сущности
+    @EventHandler
+    public void onEntityDamage(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Interaction interaction) || !(event.getDamager() instanceof Player player)) return;
+        
+        GeneratorInstance gen = findGeneratorByInteraction(interaction);
+        if (gen == null) return;
+        event.setCancelled(true);
+
+        RepairSession session = activeSessions.get(player.getUniqueId());
+        if (session != null && session.isSkillCheckActive()) {
+            session.handleSkillCheckInput();
+            return;
+        }
+        if (player.isSneaking()) {
+            breakGenerator(player, gen);
+        }
+    }
+
+    // Дублирующий перехватчик прямого ПКМ по сущности
+    @EventHandler
+    public void onEntityInteract(PlayerInteractEntityEvent event) {
         if (event.getHand() == EquipmentSlot.OFF_HAND) return;
         if (!(event.getRightClicked() instanceof Interaction interaction)) return;
         
         GeneratorInstance gen = findGeneratorByInteraction(interaction);
-        tryStartRepair(event.getPlayer(), gen);
-    }
-
-    @EventHandler
-    public void onGeneratorInteractBlock(PlayerInteractEvent event) {
-        if (event.getHand() == EquipmentSlot.OFF_HAND) return;
-        if (event.getAction() != Action.RIGHT_CLICK_BLOCK && event.getAction() != Action.RIGHT_CLICK_AIR) return;
-
-        Player player = event.getPlayer();
-        GeneratorInstance closestGen = null;
-        double closestDist = 4.5; 
-
-        for (GeneratorInstance gen : generators) {
-            double dist = player.getLocation().distance(gen.getLocation());
-            if (dist < closestDist) {
-                closestDist = dist;
-                closestGen = gen;
-            }
-        }
-
-        if (closestGen != null) {
+        if (gen != null) {
             event.setCancelled(true);
-            tryStartRepair(player, closestGen);
-        }
-    }
-
-    @EventHandler
-    public void onGeneratorLeftClickEntity(EntityDamageByEntityEvent event) {
-        if (!(event.getEntity() instanceof Interaction interaction)) return;
-        if (!(event.getDamager() instanceof Player player)) return;
-
-        GeneratorInstance gen = findGeneratorByInteraction(interaction);
-        if (gen == null) return;
-
-        event.setCancelled(true); 
-
-        if (player.isSneaking()) {
-            stopRepairing(player);
-            gen.removeEntities();
-            generators.remove(gen);
-            
-            player.getInventory().addItem(getGeneratorItem());
-            player.sendMessage("§cГенератор успешно демонтирован.");
-            player.playSound(player.getLocation(), Sound.BLOCK_IRON_TRAPDOOR_CLOSE, 1.0f, 0.8f);
-            return;
-        }
-
-        RepairSession session = activeSessions.get(player.getUniqueId());
-        if (session != null && session.isSkillCheckActive()) {
-            session.handleSkillCheckInput(); 
-        }
-    }
-
-    @EventHandler
-    public void onSkillCheckClickAir(PlayerInteractEvent event) {
-        Player player = event.getPlayer();
-        RepairSession session = activeSessions.get(player.getUniqueId());
-        if (session != null && session.isSkillCheckActive() && (event.getAction() == Action.LEFT_CLICK_AIR || event.getAction() == Action.LEFT_CLICK_BLOCK)) {
-            event.setCancelled(true);
-            session.handleSkillCheckInput();
+            tryStartRepair(event.getPlayer(), gen);
         }
     }
 
     @EventHandler
     public void onPlayerSneak(PlayerToggleSneakEvent event) {
-        if (event.isSneaking() && !activeSessions.containsKey(event.getPlayer().getUniqueId())) {
+        // ИСПРАВЛЕНО: Теперь Shift гарантированно обрывает сессию, без бага с `!`
+        if (event.isSneaking()) {
             stopRepairing(event.getPlayer());
         }
     }
@@ -319,24 +360,16 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             this.completed = true;
             lampDisplay.setItemStack(new ItemStack(Material.SEA_LANTERN));
 
-            Location lampLoc = location.clone().add(0, 2.9, 0.3); // Обновлена высота лампы
+            Location lampLoc = location.clone().add(0, 2.9, 0.3);
             lampLoc.getBlock().setType(Material.LIGHT);
             if (lampLoc.getBlock().getBlockData() instanceof Light lightData) {
                 lightData.setLevel(15);
                 lampLoc.getBlock().setBlockData(lightData);
             }
 
-            Location redstoneLoc = location.clone().getBlock().getLocation(); 
-            BlockData originalData = redstoneLoc.getBlock().getBlockData();
-            redstoneLoc.getBlock().setType(Material.REDSTONE_BLOCK, true);
-
-            for (Player p : redstoneLoc.getWorld().getPlayers()) {
-                p.sendBlockChange(redstoneLoc, originalData);
-            }
-
             Objects.requireNonNull(location.getWorld()).playSound(location, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             location.getWorld().playSound(location, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.5f, 1.5f);
-            location.getWorld().spawnParticle(Particle.FLASH, location.clone().add(0, 1.5, 0), 20); // Опущены эффекты завершения
+            location.getWorld().spawnParticle(Particle.FLASH, location.clone().add(0, 1.5, 0), 20); 
 
             new BukkitRunnable() {
                 private long ticks = 0;
@@ -360,13 +393,10 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 part.remove();
             }
             interaction.remove();
-            Location lampLoc = location.clone().add(0, 2.9, 0.3); // Обновлена высота при удалении
+            
+            Location lampLoc = location.clone().add(0, 2.9, 0.3); 
             if (lampLoc.getBlock().getType() == Material.LIGHT) {
                 lampLoc.getBlock().setType(Material.AIR);
-            }
-            Location redstoneLoc = location.clone().getBlock().getLocation();
-            if (redstoneLoc.getBlock().getType() == Material.REDSTONE_BLOCK) {
-                redstoneLoc.getBlock().setType(Material.AIR);
             }
         }
     }
@@ -387,10 +417,11 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         }
 
         public boolean isSkillCheckActive() { return skillCheckActive; }
+        public GeneratorInstance getGenerator() { return generator; }
 
         @Override
         public void run() {
-            if (generator.isCompleted() || !player.isOnline() || player.getLocation().distance(generator.getLocation()) > 4.5) {
+            if (generator.isCompleted() || !player.isOnline() || player.getLocation().distance(generator.getLocation()) > 6.0) {
                 stopRepairing(player);
                 return;
             }
