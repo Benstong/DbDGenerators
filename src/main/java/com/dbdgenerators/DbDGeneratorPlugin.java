@@ -48,7 +48,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
     }
 
     public ItemStack getGeneratorItem() {
-        // В руке это обычный блок железа, кастом дата больше не нужна!
         ItemStack item = new ItemStack(Material.IRON_BLOCK);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
@@ -96,10 +95,8 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
     }
 
     public void spawnGenerator(Location loc) {
-        // Центрируем сборку по осям X и Z
         Location centerLoc = loc.getBlock().getLocation().add(0.5, 0.1, 0.5);
 
-        // Общий хитбокс для кликов игроков
         Interaction interaction = centerLoc.getWorld().spawn(centerLoc, Interaction.class, ent -> {
             ent.setInteractionWidth(1.4f);
             ent.setInteractionHeight(2.0f);
@@ -119,20 +116,19 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         // 4. Мачта освещения - Тонкий высокий громоотвод
         parts.add(spawnPart(centerLoc, Material.LIGHTNING_ROD, 0, 1.1, 0, 0.8f, 1.6f, 0.8f));
 
-        // 5. Сигнальная лампа - Уменьшенная редстоун лампа (сохраняем её отдельно)
+        // 5. Сигнальная лампа - Уменьшенная редстоун лампа
         ItemDisplay lamp = spawnPart(centerLoc, Material.REDSTONE_LAMP, 0, 2.0, 0, 0.4f, 0.4f, 0.4f);
         parts.add(lamp);
 
         generators.add(new GeneratorInstance(centerLoc, parts, lamp, interaction));
     }
 
-    // Вспомогательный метод создания деталей разного размера
     private ItemDisplay spawnPart(Location center, Material mat, double dx, double dy, double dz, float sx, float sy, float sz) {
         Location partLoc = center.clone().add(dx, dy, dz);
         return partLoc.getWorld().spawn(partLoc, ItemDisplay.class, ent -> {
             ent.setItemStack(new ItemStack(mat));
             Transformation t = ent.getTransformation();
-            t.getScale().set(sx, sy, sz); // Меняем масштаб по трем осям
+            t.getScale().set(sx, sy, sz);
             ent.setTransformation(t);
         });
     }
@@ -218,10 +214,8 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         private void complete() {
             this.completed = true;
 
-            // Включаем сигнальную лампу (меняем блок на сияющий морской фонарь)
             lampDisplay.setItemStack(new ItemStack(Material.SEA_LANTERN));
 
-            // Ставим невидимый блок света 15 уровня
             Location lampLoc = location.clone().add(0, 2, 0);
             lampLoc.getBlock().setType(Material.LIGHT);
             if (lampLoc.getBlock().getBlockData() instanceof Light lightData) {
@@ -229,7 +223,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 lampLoc.getBlock().setBlockData(lightData);
             }
 
-            // Выдаем редстоун сигнал под генератор
             Location redstoneLoc = location.clone().subtract(0, 1, 0);
             redstoneLoc.getBlock().setType(Material.REDSTONE_BLOCK);
 
@@ -279,7 +272,8 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
                 if (tickCounter % 6 == 0) {
                     generator.location.getWorld().playSound(generator.location, Sound.BLOCK_BONE_BLOCK_BREAK, 0.6f, 0.7f);
-                    generator.location.getWorld().playSound(generator.location, Sound.BLOCK_IRON_WOODEN_TRAPDOOR_OPEN, 0.3f, 0.5f);
+                    // Вот тут исправлено название звука:
+                    generator.location.getWorld().playSound(generator.location, Sound.BLOCK_IRON_TRAPDOOR_OPEN, 0.3f, 0.5f);
                     generator.location.getWorld().spawnParticle(Particle.SMOKE, generator.location.clone().add(0, 0.7, 0), 2, 0.2, 0.1, 0.2, 0.02);
                 }
 
