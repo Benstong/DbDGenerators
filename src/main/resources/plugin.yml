@@ -1,6 +1,0 @@
-name: DbDGenerators
-version: 1.0
-main: com.dbdgenerators.DbDGeneratorPlugin
-api-version: '1.21'
-authors: [ Developer ]
-description: Полностью автономный плагин на генераторы из DbD.
