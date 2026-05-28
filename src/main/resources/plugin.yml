@@ -1,6 +1,0 @@
-name: DbDGenerators
-version: '${project.version}'
-main: com.dbdgenerators.DbDGeneratorPlugin
-api-version: '1.21'
-authors: [ YourName ]
-description: Плагин на генераторы из DbD с сохранением прогресса, крафтом и лампами.
