@@ -1,6 +1,17 @@
-Вот полный код плагина в одном файле. Здесь объединены все исправления: защита от «призраков» при перезагрузке, сохранение маскировки редстоун-блока при перезаходе игроков, увеличенный до 5 блоков радиус починки/взаимодействия и обновленная команда `/cleargen [радиус]`.
+Судя по скриншотам логов, у тебя возникли сразу две разные проблемы:
 
-Ты можешь просто скопировать этот текст и полностью заменить им содержимое твоего файла `DbDGeneratorPlugin.java`.
+1. **Ошибки компиляции (`illegal character`, `class expected`):** Ты случайно скопировал в файл `DbDGeneratorPlugin.java` лишние символы разметки — обратные кавычки (`````), буквы `java` из заголовка кода или текст описания. Java не понимает эти знаки вне комментариев, из-за чего ломается весь синтаксис файла.
+2. **Ошибка в рантайме (`IllegalArgumentException` с партиклами):** В версиях майнкрафта 1.20.x–1.21.1 старый эффект `Particle.REDSTONE` был заменен на **`Particle.DUST`**. Этот тип частиц **строго требует** передавать дополнительный объект настроек — `Particle.DustOptions` (цвет и размер пыли). Если вызвать его без этих параметров, сервер моментально крашит задачу.
+
+---
+
+Вот полностью исправленный и чистый код плагина. В методе `failSkillCheck` теперь используются абсолютно правильные для версии 1.21.1 партиклы красной редстоун-пыли с цветом и размером.
+
+### Инструкция по установке:
+
+1. Полностью сотри всё содержимое твоего файла `DbDGeneratorPlugin.java`.
+2. Скопируй код ниже (нажав на кнопку копирования в углу блока).
+3. **Важно:** Убедись, что в самом начале и в самом конце файла у тебя *не осталось* строчек со знаками ``` или слов вроде "java". Файл должен начинаться строго со строки `package com.dbdgenerators;`.
 
 ```java
 package com.dbdgenerators;
@@ -9,6 +20,7 @@ import com.destroystokyo.paper.profile.PlayerProfile;
 import com.destroystokyo.paper.profile.ProfileProperty;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -97,7 +109,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             
             meta.setDisplayName("§e§lГенератор из DbD");
             meta.setLore(Arrays.asList(
-                    "§7Установите этот block, чтобы собрать",
+                    "§7Установите этот блок, чтобы собрать",
                     "§7детализированный генератор.",
                     "",
                     "§6Подаёт редстоун-сигнал после починки!",
@@ -128,7 +140,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
             Location spawnLoc = event.getBlockPlaced().getLocation();
             spawnGenerator(spawnLoc);
-            event.getPlayer().sendMessage("§aГенератор установлен! ПКМ — ремонт/строительство, Shift+ЛКМ — сломать.");
+            event.getPlayer().sendMessage("§aГенератор установлен! ПКМ — ремонт, Shift+ЛКМ — сломать.");
         }
     }
 
@@ -354,7 +366,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        // Восстанавливаем визуальную маскировку редстоуна для зашедшего игрока
         for (GeneratorInstance gen : generators) {
             if (gen.isCompleted() && gen.getOriginalBlockData() != null) {
                 event.getPlayer().sendBlockChange(gen.getLocation(), gen.getOriginalBlockData());
@@ -623,7 +634,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             String progressBar = "§e" + "■".repeat(bars) + "§7" + "■".repeat(20 - bars);
             player.sendActionBar(LegacyComponentSerializer.legacySection().deserialize(
                     "§7Ремонт: " + progressBar + " §6" + String.format("%.1f", generator.getProgress()) + "%"
-            ));
+                ));
         }
 
         private void startSkillCheck() {
@@ -675,7 +686,12 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         private void failSkillCheck() {
             generator.addProgress(-8.0); 
             Objects.requireNonNull(generator.location.getWorld()).playSound(generator.location, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1.2f);
-            generator.location.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, generator.location.clone().add(0, 0.9, 0), 15, 0.4, 0.4, 0.4, 0.5);
+            
+            // ИСПРАВЛЕНО: Правильный вызов редстоун-частиц (Particle.DUST) для версии 1.21.1 с DustOptions
+            Color redColor = Color.fromRGB(255, 0, 0);
+            Particle.DustOptions dustOptions = new Particle.DustOptions(redColor, 1.2f);
+            generator.location.getWorld().spawnParticle(Particle.DUST, generator.location.clone().add(0, 0.9, 0), 25, 0.4, 0.4, 0.4, 0.0, dustOptions);
+            
             generator.location.getWorld().spawnParticle(Particle.LARGE_SMOKE, generator.location.clone().add(0, 0.9, 0), 5);
             skillCheckActive = false;
         }
