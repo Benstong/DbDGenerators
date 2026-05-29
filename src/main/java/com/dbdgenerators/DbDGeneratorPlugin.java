@@ -1,19 +1,3 @@
-Судя по скриншотам логов, у тебя возникли сразу две разные проблемы:
-
-1. **Ошибки компиляции (`illegal character`, `class expected`):** Ты случайно скопировал в файл `DbDGeneratorPlugin.java` лишние символы разметки — обратные кавычки (`````), буквы `java` из заголовка кода или текст описания. Java не понимает эти знаки вне комментариев, из-за чего ломается весь синтаксис файла.
-2. **Ошибка в рантайме (`IllegalArgumentException` с партиклами):** В версиях майнкрафта 1.20.x–1.21.1 старый эффект `Particle.REDSTONE` был заменен на **`Particle.DUST`**. Этот тип частиц **строго требует** передавать дополнительный объект настроек — `Particle.DustOptions` (цвет и размер пыли). Если вызвать его без этих параметров, сервер моментально крашит задачу.
-
----
-
-Вот полностью исправленный и чистый код плагина. В методе `failSkillCheck` теперь используются абсолютно правильные для версии 1.21.1 партиклы красной редстоун-пыли с цветом и размером.
-
-### Инструкция по установке:
-
-1. Полностью сотри всё содержимое твоего файла `DbDGeneratorPlugin.java`.
-2. Скопируй код ниже (нажав на кнопку копирования в углу блока).
-3. **Важно:** Убедись, что в самом начале и в самом конце файла у тебя *не осталось* строчек со знаками ``` или слов вроде "java". Файл должен начинаться строго со строки `package com.dbdgenerators;`.
-
-```java
 package com.dbdgenerators;
 
 import com.destroystokyo.paper.profile.PlayerProfile;
@@ -57,20 +41,16 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Transformation;
 
-import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
-
 public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
-    private final Map<UUID, RepairSession> activeSessions = new HashMap<>();
-    private final List<GeneratorInstance> generators = new ArrayList<>();
+    private final java.util.Map<java.util.UUID, RepairSession> activeSessions = new java.util.HashMap<>();
+    private final java.util.List<GeneratorInstance> generators = new java.util.ArrayList<>();
     private NamespacedKey entityKey;
 
     @Override
     public void onEnable() {
         entityKey = new NamespacedKey(this, "dbd_gen_part");
 
-        // Автоматическая очистка старых забытых энтити при старте/релоаде сервера
         int removed = 0;
         for (World world : Bukkit.getWorlds()) {
             for (Entity ent : world.getEntities()) {
@@ -87,7 +67,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(this, this);
         registerGeneratorRecipe();
         
-        Objects.requireNonNull(getCommand("cleargen")).setExecutor(this);
+        java.util.Objects.requireNonNull(getCommand("cleargen")).setExecutor(this);
     }
 
     @Override
@@ -103,12 +83,12 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         ItemStack item = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta meta = (SkullMeta) item.getItemMeta();
         if (meta != null) {
-            PlayerProfile profile = Bukkit.createProfile(UUID.randomUUID());
+            PlayerProfile profile = Bukkit.createProfile(java.util.UUID.randomUUID());
             profile.setProperty(new ProfileProperty("textures", "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvMzkzZDUxNmU3YzFjZGI1MjA0ZTYyOGFkOWFlYzRhOGY5NWQ4ZWU4Y2QzNzEzOWQwNmUzYTk2OWU5OTliYjNiMCJ9fX0="));
             meta.setPlayerProfile(profile);
             
             meta.setDisplayName("§e§lГенератор из DbD");
-            meta.setLore(Arrays.asList(
+            meta.setLore(java.util.Arrays.asList(
                     "§7Установите этот блок, чтобы собрать",
                     "§7детализированный генератор.",
                     "",
@@ -134,7 +114,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onGeneratorPlace(BlockPlaceEvent event) {
         ItemStack item = event.getItemInHand();
-        if (item.hasItemMeta() && Objects.requireNonNull(item.getItemMeta()).getDisplayName().contains("Генератор")) {
+        if (item.hasItemMeta() && java.util.Objects.requireNonNull(item.getItemMeta()).getDisplayName().contains("Генератор")) {
             event.setCancelled(true);
             item.setAmount(item.getAmount() - 1);
 
@@ -153,9 +133,9 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             ent.getPersistentDataContainer().set(entityKey, PersistentDataType.BYTE, (byte) 1);
         });
 
-        List<ItemDisplay> parts = new ArrayList<>();
-        List<ItemDisplay> leftPistons = new ArrayList<>();
-        List<ItemDisplay> rightPistons = new ArrayList<>();
+        java.util.List<ItemDisplay> parts = new java.util.ArrayList<>();
+        java.util.List<ItemDisplay> leftPistons = new java.util.ArrayList<>();
+        java.util.List<ItemDisplay> rightPistons = new java.util.ArrayList<>();
 
         parts.add(spawnPart(centerLoc, Material.BLAST_FURNACE, 0, 0, 0, 1.2f, 0.7f, 1.2f, 0, 0));
         parts.add(spawnPart(centerLoc, Material.OBSERVER, 0, 0.35, 0.45, 0.8f, 0.6f, 0.3f, 0, 0));
@@ -443,13 +423,12 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         return false;
     }
 
-    // --- КЛАСС ГЕНЕРАТОРА ---
     private static class GeneratorInstance {
         private final JavaPlugin plugin;
         private final Location location;
-        private final List<ItemDisplay> parts;
-        private final List<ItemDisplay> leftPistons;
-        private final List<ItemDisplay> rightPistons;
+        private final java.util.List<ItemDisplay> parts;
+        private final java.util.List<ItemDisplay> leftPistons;
+        private final java.util.List<ItemDisplay> rightPistons;
         private final ItemDisplay lampDisplay;
         private final Interaction interaction;
         
@@ -458,7 +437,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         private long ticks = 0;
         private BlockData originalBlockData = null;
 
-        public GeneratorInstance(JavaPlugin plugin, Location location, List<ItemDisplay> parts, List<ItemDisplay> leftPistons, List<ItemDisplay> rightPistons, ItemDisplay lampDisplay, Interaction interaction) {
+        public GeneratorInstance(JavaPlugin plugin, Location location, java.util.List<ItemDisplay> parts, java.util.List<ItemDisplay> leftPistons, java.util.List<ItemDisplay> rightPistons, ItemDisplay lampDisplay, Interaction interaction) {
             this.plugin = plugin;
             this.location = location;
             this.parts = parts;
@@ -557,7 +536,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                 p.sendBlockChange(location, originalBlockData);
             }
 
-            Objects.requireNonNull(location.getWorld()).playSound(location, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
+            java.util.Objects.requireNonNull(location.getWorld()).playSound(location, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
             location.getWorld().playSound(location, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.5f, 1.5f);
             location.getWorld().spawnParticle(Particle.FLASH, location.clone().add(0, 1, 0), 20);
         }
@@ -583,7 +562,6 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    // --- КЛАСС СЕССИИ ---
     private class RepairSession extends BukkitRunnable {
         private final Player player;
         private final GeneratorInstance generator;
@@ -623,7 +601,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
                     generator.location.getWorld().spawnParticle(Particle.SMOKE, generator.location.clone().add(0, 0.9, 0), 2, 0.3, 0.1, 0.3, 0.02);
                 }
 
-                if (ThreadLocalRandom.current().nextDouble() < 0.015) {
+                if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.015) {
                     startSkillCheck();
                 }
             }
@@ -641,7 +619,7 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
             skillCheckActive = true;
             skillCheckPosition = 0;
             movingRight = true;
-            targetMin = ThreadLocalRandom.current().nextInt(8, 14);
+            targetMin = java.util.concurrent.ThreadLocalRandom.current().nextInt(8, 14);
             targetMax = targetMin + 3;
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 1f, 1.0f);
         }
@@ -685,9 +663,8 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
 
         private void failSkillCheck() {
             generator.addProgress(-8.0); 
-            Objects.requireNonNull(generator.location.getWorld()).playSound(generator.location, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1.2f);
+            java.util.Objects.requireNonNull(generator.location.getWorld()).playSound(generator.location, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1.2f);
             
-            // ИСПРАВЛЕНО: Правильный вызов редстоун-частиц (Particle.DUST) для версии 1.21.1 с DustOptions
             Color redColor = Color.fromRGB(255, 0, 0);
             Particle.DustOptions dustOptions = new Particle.DustOptions(redColor, 1.2f);
             generator.location.getWorld().spawnParticle(Particle.DUST, generator.location.clone().add(0, 0.9, 0), 25, 0.4, 0.4, 0.4, 0.0, dustOptions);
@@ -697,5 +674,3 @@ public final class DbDGeneratorPlugin extends JavaPlugin implements Listener {
         }
     }
 }
-
-```
