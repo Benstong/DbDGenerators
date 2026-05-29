@@ -4,3 +4,7 @@ main: com.dbdgenerators.DbDGeneratorPlugin
 api-version: '1.21'
 authors: [ Developer ]
 description: Vanilla-compatible DbD Generators without resource packs.
+commands:
+  cleargen:
+    description: Очистка забагованных генераторов в указанном радиусе.
+    usage: /cleargen [радиус]
